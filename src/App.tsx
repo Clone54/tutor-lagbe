@@ -1,25 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  auth, 
-  db, 
-  googleProvider, 
-  signInWithPopup, 
-  signOut, 
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  collection,
-  doc,
-  setDoc,
-  getDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  serverTimestamp
-} from './firebase';
+  supabase, 
+  signInWithGoogle,
+  signInWithEmail, 
+  createUserWithEmail,
+  signOut,
+  onAuthStateChanged
+} from './supabase';
+import type { Session } from './supabase';
 import { 
   Role, 
   UserProfile, 
@@ -64,27 +52,9 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // Error Handler
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+function handleError(error: unknown, operation = 'operation', path = null) {
+  console.error(`${operation} error at ${path}:`, error);
+  throw error;
 }
 
 // Error Boundary Component
@@ -149,18 +119,11 @@ export default function App() {
 
   // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged((currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        try {
-          const docRef = doc(db, 'users', currentUser.uid);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
-          }
-        } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
-        }
+        // Profile fetch will be migrated later
+        setProfile(null); // Temp - will load from Supabase users table
       } else {
         setProfile(null);
       }
@@ -200,7 +163,7 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithGoogle();
     } catch (error) {
       console.error("Login failed", error);
     }
@@ -208,31 +171,36 @@ export default function App() {
 
   const handleRoleSelection = async (role: Role, institution?: string) => {
     if (!user) return;
-    const newProfile: UserProfile = {
-      uid: user.uid,
-      name: user.displayName || 'Anonymous',
+    const newProfile = {
+      id: user.id,
+      name: user.user_metadata.name || 'Anonymous',
       email: user.email || '',
-      phone: '', // Will be updated in profile
+      phone: '', 
       role,
       institution: institution || '',
-      isVerified: true, // Google users are pre-verified for simplicity in this demo
-      createdAt: serverTimestamp()
+      isVerified: true,
+      created_at: new Date().toISOString()
     };
     try {
-      await setDoc(doc(db, 'users', user.uid), newProfile);
+      const { error } = await supabase.from('users').upsert(newProfile);
+      if (error) throw error;
       setProfile(newProfile);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}`);
+      console.error('Profile creation error:', error);
     }
   };
 
   const handleUpdateProfile = async (updatedData: Partial<UserProfile>) => {
     if (!user || !profile) return;
     try {
-      await updateDoc(doc(db, 'users', user.uid), updatedData);
+      const { error } = await supabase
+        .from('users')
+        .update(updatedData)
+        .eq('id', user.id);
+      if (error) throw error;
       setProfile({ ...profile, ...updatedData });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+      console.error('Profile update error:', error);
     }
   };
 
@@ -438,10 +406,11 @@ function LandingPage({ onLogin }: { onLogin: () => void }) {
     setLoading(true);
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmail(email, password);
       } else {
         // Registration
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const { data: userCredential, error } = await createUserWithEmail(email, password);
+        if (error) throw error;
         const code = Math.floor(100000 + Math.random() * 900000).toString();
         setSentCode(code);
         setTempUser(userCredential.user);
@@ -1404,7 +1373,6 @@ function RequestCard({ request, post }: { request: TutorRequest; post?: TuitionP
 
 function PostModal({ onClose, profile }: { onClose: () => void; profile: UserProfile }) {
   const classOptions = ['1-5', '6-8', 'SSC', 'HSC', 'Admission'];
-  
   const [formData, setFormData] = useState({
     studentClass: '',
     subjects: '',
