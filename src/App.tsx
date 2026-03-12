@@ -424,24 +424,7 @@ function LandingPage({ onLogin }: { onLogin: () => void }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Stats State
-  const [stats, setStats] = useState({ tutors: 0, guardians: 0, success: 0 });
-
-  useEffect(() => {
-    const qTutors = query(collection(db, 'users'), where('role', '==', 'tutor'), where('isVerified', '==', true));
-    const qGuardians = query(collection(db, 'users'), where('role', '==', 'guardian'));
-    const qSuccess = query(collection(db, 'requests'), where('status', '==', 'accepted'));
-
-    const unsubTutors = onSnapshot(qTutors, (snap) => setStats(s => ({ ...s, tutors: snap.size })));
-    const unsubGuardians = onSnapshot(qGuardians, (snap) => setStats(s => ({ ...s, guardians: snap.size })));
-    const unsubSuccess = onSnapshot(qSuccess, (snap) => setStats(s => ({ ...s, success: snap.size })));
-
-    return () => {
-      unsubTutors();
-      unsubGuardians();
-      unsubSuccess();
-    };
-  }, []);
+  // Stats removed as per user request
 
   // Verification State
   const [showVerification, setShowVerification] = useState(false);
@@ -568,20 +551,6 @@ function LandingPage({ onLogin }: { onLogin: () => void }) {
             Smart, secure, and specifically built for our city.
           </p>
           
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-12">
-            <div className="flex flex-col items-center md:items-start">
-              <div className="text-2xl font-black text-slate-900">{stats.tutors}+</div>
-              <div className="text-slate-500 text-sm font-medium">Verified Tutors</div>
-            </div>
-            <div className="flex flex-col items-center md:items-start">
-              <div className="text-2xl font-black text-slate-900">{stats.guardians}+</div>
-              <div className="text-slate-500 text-sm font-medium">Happy Guardians</div>
-            </div>
-            <div className="flex flex-col items-center md:items-start">
-              <div className="text-2xl font-black text-slate-900">{stats.success}+</div>
-              <div className="text-slate-500 text-sm font-medium">Success Stories</div>
-            </div>
-          </div>
         </motion.div>
       </div>
 
@@ -1434,6 +1403,8 @@ function RequestCard({ request, post }: { request: TutorRequest; post?: TuitionP
 }
 
 function PostModal({ onClose, profile }: { onClose: () => void; profile: UserProfile }) {
+  const classOptions = ['1-5', '6-8', 'SSC', 'HSC', 'Admission'];
+  
   const [formData, setFormData] = useState({
     studentClass: '',
     subjects: '',
@@ -1484,13 +1455,17 @@ function PostModal({ onClose, profile }: { onClose: () => void; profile: UserPro
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">Student Class</label>
-                <input 
+                <select 
                   required
                   value={formData.studentClass}
                   onChange={(e) => setFormData({...formData, studentClass: e.target.value})}
-                  placeholder="e.g. Class 9"
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
+                >
+                  <option value="">Select Class</option>
+                  {classOptions.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">Budget (Monthly)</label>
@@ -1537,8 +1512,9 @@ function PostModal({ onClose, profile }: { onClose: () => void; profile: UserPro
                 >
                   <option value="Any">Any</option>
                   <option value="RUET">RUET</option>
-                  <option value="RU">Rajshahi University (RU)</option>
-                  <option value="RMC">Rajshahi Medical College (RMC)</option>
+                  <option value="RU">RU</option>
+                  <option value="RMC">RMC</option>
+                  <option value="RC">Rajshahi College (RC)</option>
                 </select>
               </div>
               <div>
