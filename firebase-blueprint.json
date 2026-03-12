@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Information about guardians and tutors",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "description": "Email address" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "role": { "type": "string", "enum": ["guardian", "tutor"], "description": "User role" },
+        "institution": { "type": "string", "description": "Institution (RUET, RU, RMC, etc.)" },
+        "isVerified": { "type": "boolean", "description": "Whether the user has verified their phone/email" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" }
+      },
+      "required": ["uid", "name", "email", "phone", "role", "isVerified"]
+    },
+    "TuitionPost": {
+      "title": "Tuition Post",
+      "description": "A post created by a guardian looking for a tutor",
+      "type": "object",
+      "properties": {
+        "guardianId": { "type": "string", "description": "UID of the guardian" },
+        "guardianName": { "type": "string", "description": "Name of the guardian" },
+        "studentClass": { "type": "string", "description": "Class of the student" },
+        "subjects": { "type": "string", "description": "Subjects to be taught" },
+        "preferredInstitution": { "type": "string", "enum": ["RUET", "RU", "RMC", "Any"], "description": "Preferred institution for the tutor" },
+        "location": { "type": "string", "description": "Area in Rajshahi" },
+        "coordinates": { 
+          "type": "object", 
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "daysPerWeek": { "type": "integer", "description": "Number of days per week" },
+        "budget": { "type": "string", "description": "Monthly budget" },
+        "contactInfo": { "type": "string", "description": "Contact phone number" },
+        "status": { "type": "string", "enum": ["open", "filled", "closed"], "description": "Status of the post" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Post creation timestamp" }
+      },
+      "required": ["guardianId", "studentClass", "subjects", "preferredInstitution", "location", "daysPerWeek", "budget", "contactInfo", "status"]
+    },
+    "TutorRequest": {
+      "title": "Tutor Request",
+      "description": "A request from a tutor to a specific tuition post",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string", "description": "ID of the tuition post" },
+        "tutorId": { "type": "string", "description": "UID of the tutor" },
+        "tutorName": { "type": "string", "description": "Name of the tutor" },
+        "tutorInstitution": { "type": "string", "description": "Institution of the tutor" },
+        "message": { "type": "string", "description": "Message to the guardian" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"], "description": "Status of the request" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Request creation timestamp" }
+      },
+      "required": ["postId", "tutorId", "tutorName", "tutorInstitution", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/posts/{postId}": {
+      "schema": "TuitionPost",
+      "description": "Tuition requirement posts"
+    },
+    "/requests/{requestId}": {
+      "schema": "TutorRequest",
+      "description": "Requests from tutors for posts"
+    }
+  }
+}

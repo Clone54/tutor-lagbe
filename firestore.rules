@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - phone: string (required)
+    //   - role: string (required, 'guardian' | 'tutor')
+    //   - institution: string (optional)
+    //   - isVerified: bool (required)
+    //   - createdAt: timestamp
+    //
+    // Collection: posts
+    // Document ID: {postId}
+    // Fields:
+    //   - guardianId: string (required)
+    //   - guardianName: string (required)
+    //   - studentClass: string (required)
+    //   - subjects: string (required)
+    //   - preferredInstitution: string (required)
+    //   - location: string (required)
+    //   - daysPerWeek: int (required)
+    //   - budget: string (required)
+    //   - contactInfo: string (required)
+    //   - status: string (required, 'open' | 'filled' | 'closed')
+    //   - createdAt: timestamp
+    //
+    // Collection: requests
+    // Document ID: {requestId} (Recommended: {tutorId}_{postId})
+    // Fields:
+    //   - postId: string (required)
+    //   - guardianId: string (required)
+    //   - tutorId: string (required)
+    //   - tutorName: string (required)
+    //   - tutorInstitution: string (required)
+    //   - message: string (required)
+    //   - status: string (required, 'pending' | 'accepted' | 'rejected')
+    //   - createdAt: timestamp
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isVerified() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerified == true;
+    }
+
+    function getUserRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
+        : null;
+    }
+
+    function isGuardian() {
+      return isAuthenticated() && getUserRole() == 'guardian';
+    }
+
+    function isTutor() {
+      return isAuthenticated() && getUserRole() == 'tutor';
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      let requiredFields = ['uid', 'name', 'email', 'phone', 'role'];
+      let optionalFields = ['institution', 'qualifications', 'experience', 'isVerified', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
+             data.uid == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.matches('^.+@.+\\..+$') &&
+             data.phone is string && (data.phone == "" || (data.phone.size() >= 10 && data.phone.size() <= 15)) &&
+             data.role in ['guardian', 'tutor'] &&
+             (!('isVerified' in data) || data.isVerified is bool) &&
+             (!('institution' in data) || (data.institution is string && data.institution.size() < 100)) &&
+             (!('qualifications' in data) || (data.qualifications is string && data.qualifications.size() < 1000)) &&
+             (!('experience' in data) || (data.experience is string && data.experience.size() < 1000));
+    }
+
+    function isValidPost(data) {
+      return data.keys().hasAll(['guardianId', 'guardianName', 'studentClass', 'subjects', 'preferredInstitution', 'location', 'daysPerWeek', 'budget', 'contactInfo', 'status']) &&
+             data.guardianId == request.auth.uid &&
+             data.studentClass is string && data.studentClass.size() > 0 &&
+             data.subjects is string && data.subjects.size() > 0 &&
+             data.preferredInstitution in ['RUET', 'RU', 'RMC', 'Any'] &&
+             data.location is string && data.location.size() > 0 &&
+             data.daysPerWeek is int && data.daysPerWeek >= 1 && data.daysPerWeek <= 7 &&
+             data.budget is string && data.budget.size() > 0 &&
+             data.contactInfo is string && data.contactInfo.size() >= 5 &&
+             data.status in ['open', 'filled', 'closed'];
+    }
+
+    function isValidRequest(data) {
+      return data.keys().hasAll(['postId', 'guardianId', 'tutorId', 'tutorName', 'tutorInstitution', 'message', 'status']) &&
+             data.tutorId == request.auth.uid &&
+             data.postId is string &&
+             data.guardianId is string &&
+             data.tutorName is string &&
+             data.tutorInstitution is string &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 1000 &&
+             data.status in ['pending', 'accepted', 'rejected'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (!('role' in resource.data) || request.resource.data.role == resource.data.role);
+    }
+
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isGuardian() && isValidPost(request.resource.data);
+      allow update: if isAuthenticated() && (
+        // Owner can update everything except guardianId
+        (isOwner(resource.data.guardianId) && isValidPost(request.resource.data)) ||
+        // Anyone can update status if it's a valid transition (simplified for now)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && 
+         request.resource.data.status in ['open', 'filled', 'closed'])
+      );
+      allow delete: if isOwner(resource.data.guardianId);
+    }
+
+    match /requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        isOwner(resource.data.tutorId) || 
+        isOwner(resource.data.guardianId)
+      );
+      allow create: if isTutor() && isValidRequest(request.resource.data) &&
+                      requestId == request.auth.uid + "_" + request.resource.data.postId &&
+                      request.resource.data.guardianId == get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.guardianId;
+      allow update: if isAuthenticated() && (
+        // Tutor can update their own request message
+        (isOwner(resource.data.tutorId) && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message']) &&
+         isValidRequest(request.resource.data)) ||
+        // Guardian can update status
+        (isOwner(resource.data.guardianId) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+         request.resource.data.status in ['accepted', 'rejected'])
+      );
+      allow delete: if isOwner(resource.data.tutorId);
+    }
+  }
+}
